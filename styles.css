@@ -155,9 +155,7 @@ h1.title {
     content: "Score";
 }
  
-.best-container:after {
-    content: "Best";
-}
+
  
 p {
     margin-top: 0;
@@ -538,24 +536,24 @@ hr {
 }
  
 .tile.tile-8 .tile-inner {
-    color: #f9f6f2;
-    background: #f2b179;
+    /* color: #f9f6f2; */
+    background: #ebd4ab;
 }
  
 .tile.tile-16 .tile-inner {
-    color: #f9f6f2;
-    background: #f59563;
+    /* color: #f9f6f2; */
+    background: #e7c68d;
 }
  
 .tile.tile-32 .tile-inner {
-    color: #f9f6f2;
-    background: #f67c5f;
+    /* color: #f9f6f2; */
+    background: rgb(235, 183, 95)
 }
  
 .tile.tile-64 .tile-inner {
-    color: #f9f6f2;
+    /* color: #f9f6f2; */
     background: #f65e3b;
-    font-size: 30px;
+    /* font-size: 30px; */
 }
  
 @media screen and (max-width: 520px) {
