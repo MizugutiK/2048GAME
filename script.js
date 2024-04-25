@@ -1,115 +1,165 @@
 function KeyboardInputManager() {
-    this.events = {};
-    this.eventTouchstart = window.navigator.msPointerEnabled ? "MSPointerDown" : "touchstart";
-    this.eventTouchmove = window.navigator.msPointerEnabled ? "MSPointerMove" : "touchmove";
-    this.eventTouchend = window.navigator.msPointerEnabled ? "MSPointerUp" : "touchend";
-    this.listen();
-  }
-  
-  KeyboardInputManager.prototype.on = function(event, callback) {
-    if (!this.events[event]) {
+  this.events = {};
+  this.eventTouchstart = window.navigator.msPointerEnabled ? "MSPointerDown" : "touchstart";
+  this.eventTouchmove = window.navigator.msPointerEnabled ? "MSPointerMove" : "touchmove";
+  this.eventTouchend = window.navigator.msPointerEnabled ? "MSPointerUp" : "touchend";
+  this.listen();
+}
+
+KeyboardInputManager.prototype.on = function(event, callback) {
+  if (!this.events[event]) {
       this.events[event] = [];
-    }
-    this.events[event].push(callback);
-  };
-  
-  KeyboardInputManager.prototype.emit = function(event, data) {
-    var callbacks = this.events[event];
-    if (callbacks) {
+  }
+  this.events[event].push(callback);
+};
+
+KeyboardInputManager.prototype.emit = function(event, data) {
+  var callbacks = this.events[event];
+  if (callbacks) {
       callbacks.forEach(function(callback) {
-        callback(data);
+          callback(data);
       });
-    }
-  };
-  
-  KeyboardInputManager.prototype.listen = function() {
-    var self = this;
-    var map = {
+  }
+};
+
+KeyboardInputManager.prototype.listen = function() {
+  var self = this;
+  var map = {
       38: 0, 39: 1, 40: 2, 37: 3, 75: 0, 76: 1, 74: 2, 72: 3, 87: 0, 68: 1, 83: 2, 65: 3
-    };
-  
-    document.addEventListener("keydown", function(event) {
-      var modifiers = event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
-      var mapped = map[event.which];
-      if (self.targetIsInput(event)) return;
-      if (!modifiers && mapped !== undefined) {
-        event.preventDefault();
-        self.emit("move", mapped);
+  };
+
+  var eventsMap = {
+      "keydown": function(event) {
+          var modifiers = event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
+          var mapped = map[event.which];
+          if (self.targetIsInput(event)) return;
+          if (!modifiers && mapped !== undefined) {
+              event.preventDefault();
+              self.emit("move", mapped);
+          }
+          if (!modifiers && event.which === 82) {
+              self.restart.call(self, event);
+          }
+      },
+      "touchstart": function(event) {
+          if ((!window.navigator.msPointerEnabled && event.touches.length > 1) ||
+              event.targetTouches > 1 || self.targetIsInput(event)) {
+              return;
+          }
+          if (window.navigator.msPointerEnabled) {
+              touchStartClientX = event.pageX;
+              touchStartClientY = event.pageY;
+          } else {
+              touchStartClientX = event.touches[0].clientX;
+              touchStartClientY = event.touches[0].clientY;
+          }
+          event.preventDefault();
+      },
+      "touchmove": function(event) {
+          event.preventDefault();
+      },
+      "touchend": function(event) {
+          if ((!window.navigator.msPointerEnabled && event.touches.length > 0) ||
+              event.targetTouches > 0 || self.targetIsInput(event)) {
+              return;
+          }
+          var touchEndClientX, touchEndClientY;
+          if (window.navigator.msPointerEnabled) {
+              touchEndClientX = event.pageX;
+              touchEndClientY = event.pageY;
+          } else {
+              touchEndClientX = event.changedTouches[0].clientX;
+              touchEndClientY = event.changedTouches[0].clientY;
+          }
+          var dx = touchEndClientX - touchStartClientX;
+          var absDx = Math.abs(dx);
+          var dy = touchEndClientY - touchStartClientY;
+          var absDy = Math.abs(dy);
+          if (Math.max(absDx, absDy) > 10) {
+              self.emit("move", absDx > absDy ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0));
+          }
       }
-      if (!modifiers && event.which === 82) {
-        self.restart.call(self, event);
-      }
-    });
-  
-    this.bindButtonPress(".retry-button", this.restart);
-    this.bindButtonPress(".restart-button", this.restart);
-    this.bindButtonPress(".keep-playing-button", this.keepPlaying);
-  
-    var touchStartClientX, touchStartClientY;
-    var gameContainer = document.getElementsByClassName("game-container")[0];
-  
-    gameContainer.addEventListener(this.eventTouchstart, function(event) {
+  };
+
+  Object.keys(eventsMap).forEach(function(eventName) {
+      document.addEventListener(eventName, eventsMap[eventName]);
+  });
+
+  this.bindButtonPress(".retry-button", this.restart);
+  this.bindButtonPress(".restart-button", this.restart);
+  this.bindButtonPress(".keep-playing-button", this.keepPlaying);
+};
+KeyboardInputManager.prototype.restart = function(event) {
+  event.preventDefault();
+  this.emit("restart");
+};
+
+KeyboardInputManager.prototype.keepPlaying = function(event) {
+  event.preventDefault();
+  this.emit("keepPlaying");
+};
+KeyboardInputManager.prototype.bindButtonPress = function(selector, fn) {
+  var button = document.querySelector(selector);
+  button.addEventListener("click", fn.bind(this));
+  button.addEventListener(this.eventTouchend, fn.bind(this));
+};
+
+KeyboardInputManager.prototype.targetIsInput = function(event) {
+  return event.target.tagName.toLowerCase() === "input";
+};
+
+var touchStartClientX, touchStartClientY; // タッチ開始時のクライアント座標を保持するグローバル変数
+
+// タッチイベントの処理をまとめる
+document.addEventListener("DOMContentLoaded", function() {
+  var gameContainer = document.getElementsByClassName("game-container")[0];
+
+  function handleTouchStart(event) {
       if ((!window.navigator.msPointerEnabled && event.touches.length > 1) ||
-        event.targetTouches > 1 || self.targetIsInput(event)) {
-        return;
+          event.targetTouches > 1 || KeyboardInputManager.targetIsInput(event)) {
+          return;
       }
       if (window.navigator.msPointerEnabled) {
-        touchStartClientX = event.pageX;
-        touchStartClientY = event.pageY;
+          touchStartClientX = event.pageX;
+          touchStartClientY = event.pageY;
       } else {
-        touchStartClientX = event.touches[0].clientX;
-        touchStartClientY = event.touches[0].clientY;
+          touchStartClientX = event.touches[0].clientX;
+          touchStartClientY = event.touches[0].clientY;
       }
       event.preventDefault();
-    });
-  
-    gameContainer.addEventListener(this.eventTouchmove, function(event) {
+  }
+
+  function handleTouchMove(event) {
       event.preventDefault();
-    });
-  
-    gameContainer.addEventListener(this.eventTouchend, function(event) {
+  }
+
+  function handleTouchEnd(event) {
       if ((!window.navigator.msPointerEnabled && event.touches.length > 0) ||
-        event.targetTouches > 0 || self.targetIsInput(event)) {
-        return;
+          event.targetTouches > 0 || KeyboardInputManager.targetIsInput(event)) {
+          return;
       }
       var touchEndClientX, touchEndClientY;
       if (window.navigator.msPointerEnabled) {
-        touchEndClientX = event.pageX;
-        touchEndClientY = event.pageY;
+          touchEndClientX = event.pageX;
+          touchEndClientY = event.pageY;
       } else {
-        touchEndClientX = event.changedTouches[0].clientX;
-        touchEndClientY = event.changedTouches[0].clientY;
+          touchEndClientX = event.changedTouches[0].clientX;
+          touchEndClientY = event.changedTouches[0].clientY;
       }
       var dx = touchEndClientX - touchStartClientX;
       var absDx = Math.abs(dx);
       var dy = touchEndClientY - touchStartClientY;
       var absDy = Math.abs(dy);
       if (Math.max(absDx, absDy) > 10) {
-        self.emit("move", absDx > absDy ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0));
+          KeyboardInputManager.emit("move", absDx > absDy ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0));
       }
-    });
-  };
-  
-  KeyboardInputManager.prototype.restart = function(event) {
-    event.preventDefault();
-    this.emit("restart");
-  };
-  
-  KeyboardInputManager.prototype.keepPlaying = function(event) {
-    event.preventDefault();
-    this.emit("keepPlaying");
-  };
-  
-  KeyboardInputManager.prototype.bindButtonPress = function(selector, fn) {
-    var button = document.querySelector(selector);
-    button.addEventListener("click", fn.bind(this));
-    button.addEventListener(this.eventTouchend, fn.bind(this));
-  };
-  
-  KeyboardInputManager.prototype.targetIsInput = function(event) {
-    return event.target.tagName.toLowerCase() === "input";
-  };
-  
+  }
+
+  gameContainer.addEventListener(KeyboardInputManager.eventTouchstart, handleTouchStart);
+  gameContainer.addEventListener(KeyboardInputManager.eventTouchmove, handleTouchMove);
+  gameContainer.addEventListener(KeyboardInputManager.eventTouchend, handleTouchEnd);
+});
+
   function HTMLActuator() {
     this.tileContainer = document.querySelector(".tile-container");
     this.scoreContainer = document.querySelector(".score-container");
@@ -201,10 +251,6 @@ function KeyboardInputManager() {
     this.score = score;
     this.scoreContainer.textContent = this.score;
   };
-  
-//   HTMLActuator.prototype.updateBestScore = function(bestScore) {
-//     this.bestContainer.textContent = bestScore;
-//   };
   
   HTMLActuator.prototype.message = function(won) {
     var type = won ? "game-won" : "game-over";
@@ -360,8 +406,6 @@ GameManager.prototype.move = function(direction) {
     }
 };
 
-// 以下省略
-
   GameManager.prototype.getVector = function(direction) {
     var map = {
       0: { x: 0,  y: -1 },
@@ -424,105 +468,105 @@ GameManager.prototype.move = function(direction) {
     return first.x === second.x && first.y === second.y;
   };
   
-  function Grid(size, previousState) {
-    this.size = size;
-    this.cells = previousState ? this.fromState(previousState) : this.empty();
+  
+function Grid(size, previousState) {
+  this.size = size;
+  this.cells = previousState ? this.fromState(previousState) : this.empty();
+}
+
+Grid.prototype.fromState = function(state) {
+  var cells = [];
+  for (var x = 0; x < this.size; x++) {
+      var row = cells[x] = [];
+      for (var y = 0; y < this.size; y++) {
+          var tile = state[x][y];
+          row.push(tile ? new Tile(tile.position, tile.value) : null);
+      }
   }
-  
-  Grid.prototype.empty = function() {
-    var cells = [];
-    for (var x = 0; x < this.size; x++) {
+  return cells;
+};
+
+Grid.prototype.empty = function() {
+  var cells = [];
+  for (var x = 0; x < this.size; x++) {
       var row = cells[x] = [];
       for (var y = 0; y < this.size; y++) {
-        row.push(null);
+          row.push(null);
       }
-    }
-    return cells;
-  };
-  
-  Grid.prototype.fromState = function(state) {
-    var cells = [];
-    for (var x = 0; x < this.size; x++) {
-      var row = cells[x] = [];
-      for (var y = 0; y < this.size; y++) {
-        var tile = state[x][y];
-        row.push(tile ? new Tile(tile.position, tile.value) : null);
-      }
-    }
-    return cells;
-  };
-  
-  Grid.prototype.randomAvailableCell = function() {
-    var cells = this.availableCells();
-    if (cells.length) {
-      return cells[Math.floor(Math.random() * cells.length)];
-    }
-  };
-  
-  Grid.prototype.availableCells = function() {
-    var cells = [];
-    this.eachCell(function(x, y, tile) {
-      if (!tile) {
-        cells.push({ x: x, y: y });
-      }
-    });
-    return cells;
-  };
-  
-  Grid.prototype.eachCell = function(callback) {
-    for (var x = 0; x < this.size; x++) {
-      for (var y = 0; y < this.size; y++) {
-        callback(x, y, this.cells[x][y]);
-      }
-    }
-  };
-  
-  Grid.prototype.cellsAvailable = function() {
-    return !!this.availableCells().length;
-  };
-  
-  Grid.prototype.cellAvailable = function(cell) {
-    return !this.cellOccupied(cell);
-  };
-  
-  Grid.prototype.cellOccupied = function(cell) {
-    return !!this.cellContent(cell);
-  };
-  
-  Grid.prototype.cellContent = function(cell) {
-    if (this.withinBounds(cell)) {
+  }
+  return cells;
+};
+
+Grid.prototype.cellAvailable = function(cell) {
+  return !this.cellOccupied(cell);
+};
+
+Grid.prototype.cellOccupied = function(cell) {
+  return !!this.cellContent(cell);
+};
+
+Grid.prototype.cellContent = function(cell) {
+  if (this.withinBounds(cell)) {
       return this.cells[cell.x][cell.y];
-    } else {
+  } else {
       return null;
-    }
-  };
-  
-  Grid.prototype.insertTile = function(tile) {
-    this.cells[tile.x][tile.y] = tile;
-  };
-  
-  Grid.prototype.removeTile = function(tile) {
-    this.cells[tile.x][tile.y] = null;
-  };
-  
-  Grid.prototype.withinBounds = function(position) {
-    return position.x >= 0 && position.x < this.size &&
-           position.y >= 0 && position.y < this.size;
-  };
-  
-  Grid.prototype.serialize = function() {
-    var cellState = [];
-    for (var x = 0; x < this.size; x++) {
+  }
+};
+
+Grid.prototype.randomAvailableCell = function() {
+  var cells = this.availableCells();
+  if (cells.length) {
+      return cells[Math.floor(Math.random() * cells.length)];
+  }
+};
+
+Grid.prototype.availableCells = function() {
+  var cells = [];
+  this.eachCell(function(x, y, tile) {
+      if (!tile) {
+          cells.push({ x: x, y: y });
+      }
+  });
+  return cells;
+};
+
+Grid.prototype.eachCell = function(callback) {
+  for (var x = 0; x < this.size; x++) {
+      for (var y = 0; y < this.size; y++) {
+          callback(x, y, this.cells[x][y]);
+      }
+  }
+};
+
+Grid.prototype.cellsAvailable = function() {
+  return !!this.availableCells().length;
+};
+
+Grid.prototype.insertTile = function(tile) {
+  this.cells[tile.x][tile.y] = tile;
+};
+
+Grid.prototype.removeTile = function(tile) {
+  this.cells[tile.x][tile.y] = null;
+};
+
+Grid.prototype.withinBounds = function(position) {
+  return position.x >= 0 && position.x < this.size && position.y >= 0 && position.y < this.size;
+};
+
+Grid.prototype.serialize = function() {
+  var cellState = [];
+  for (var x = 0; x < this.size; x++) {
       var row = cellState[x] = [];
       for (var y = 0; y < this.size; y++) {
-        row.push(this.cells[x][y] ? this.cells[x][y].serialize() : null);
+          row.push(this.cells[x][y] ? this.cells[x][y].serialize() : null);
       }
-    }
-    return {
+  }
+  return {
       size: this.size,
       cells: cellState
-    };
   };
+};
   
   function Tile(position, value) {
     this.x                = position.x;
@@ -552,38 +596,47 @@ GameManager.prototype.move = function(direction) {
   };
   
   function LocalStorageManager() {
-    this.bestScoreKey     = "bestScore";
-    this.gameStateKey     = "gameState";
-    this.noticeClosedKey  = "noticeClosed";
+    this.bestScoreKey = "bestScore";
+    this.gameStateKey = "gameState";
+    var supported = this.localStorageSupported();
+    this.storage = supported ? window.localStorage : window.fakeStorage;
   }
   
+  LocalStorageManager.prototype.localStorageSupported = function() {
+    var testKey = "test";
+    var storage = window.localStorage;
+    try {
+        storage.setItem(testKey, "1");
+        storage.removeItem(testKey);
+        return true;
+    } catch (error) {
+        return false;
+    }
+  };
+  
   LocalStorageManager.prototype.getBestScore = function() {
-    return parseInt(localStorage.getItem(this.bestScoreKey)) || 0;
+    return this.storage.getItem(this.bestScoreKey) || 0;
   };
   
   LocalStorageManager.prototype.setBestScore = function(score) {
-    localStorage.setItem(this.bestScoreKey, score);
+    this.storage.setItem(this.bestScoreKey, score);
+  };
+  
+  LocalStorageManager.prototype.clearBestScore = function() {
+    this.storage.removeItem(this.bestScoreKey);
   };
   
   LocalStorageManager.prototype.getGameState = function() {
-    var stateJSON = localStorage.getItem(this.gameStateKey);
+    var stateJSON = this.storage.getItem(this.gameStateKey);
     return stateJSON ? JSON.parse(stateJSON) : null;
   };
   
-  LocalStorageManager.prototype.setGameState = function(gameState) {
-    localStorage.setItem(this.gameStateKey, JSON.stringify(gameState));
+  LocalStorageManager.prototype.setGameState = function(state) {
+    this.storage.setItem(this.gameStateKey, JSON.stringify(state));
   };
   
   LocalStorageManager.prototype.clearGameState = function() {
-    localStorage.removeItem(this.gameStateKey);
-  };
-  
-  LocalStorageManager.prototype.getNoticeClosed = function() {
-    return localStorage.getItem(this.noticeClosedKey) === "true";
-  };
-  
-  LocalStorageManager.prototype.setNoticeClosed = function(value) {
-    localStorage.setItem(this.noticeClosedKey, value ? "true" : "false");
+    this.storage.removeItem(this.gameStateKey);
   };
   
   var storage = new LocalStorageManager;
