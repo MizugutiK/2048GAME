@@ -107,8 +107,8 @@ KeyboardInputManager.prototype.bindButtonPress = function(selector, fn) {
 KeyboardInputManager.prototype.targetIsInput = function(event) {
   return event.target.tagName.toLowerCase() === "input";
 };
-
-var touchStartClientX, touchStartClientY; // タッチ開始時のクライアント座標を保持するグローバル変数
+// タッチ開始時のクライアント座標を保持するグローバル変数
+var touchStartClientX, touchStartClientY; 
 
 // タッチイベントの処理をまとめる
 document.addEventListener("DOMContentLoaded", function() {
@@ -201,7 +201,6 @@ document.addEventListener("DOMContentLoaded", function() {
     }
   };
   
-  HTMLActuator.prototype.tileHTML = ["2", "4", "8", "16", "32", "64", "128", "256", "512", "1024", "2048"];
   HTMLActuator.prototype.addTile = function(tile) {
     var self = this;
     var wrapper = document.createElement("div");
@@ -212,7 +211,7 @@ document.addEventListener("DOMContentLoaded", function() {
     if (tile.value > 2048) classes.push("tile-super");
     this.applyClasses(wrapper, classes);
     inner.classList.add("tile-inner");
-    inner.textContent = HTMLActuator.prototype.tileHTML[Math.log(tile.value) / Math.LN2 - 1] || tile.value;
+    inner.textContent = tile.value;
     if (tile.previousPosition) {
       window.requestAnimationFrame(function() {
         classes[2] = self.positionClass({ x: tile.x, y: tile.y });
@@ -273,6 +272,14 @@ document.addEventListener("DOMContentLoaded", function() {
     this.actuator = new Actuator;
     this.storageManager = new LocalStorageManager; // 直接LocalStorageManagerを使用する
     this.startTiles = 2;
+
+      // moveTile 関数を this のプロトタイプとして定義する
+    this.moveTile = function(tile, cell) {
+    this.grid.cells[tile.x][tile.y] = null;
+    this.grid.cells[cell.x][cell.y] = tile;
+    tile.updatePosition(cell);
+  };
+
     this.inputManager.on("move", this.move.bind(this));
     this.inputManager.on("restart", this.restart.bind(this));
     this.inputManager.on("keepPlaying", this.keepPlaying.bind(this));
@@ -280,9 +287,9 @@ document.addEventListener("DOMContentLoaded", function() {
 }
 
 GameManager.prototype.restart = function() {
-    this.storageManager.clearGameState();
     this.actuator.continueGame();
     this.setup();
+    this.over = false; // ゲームをリスタートするときにゲームオーバーのフラグをリセットする
 };
 
 GameManager.prototype.keepPlaying = function() {
@@ -291,7 +298,8 @@ GameManager.prototype.keepPlaying = function() {
 };
 
 GameManager.prototype.isGameTerminated = function() {
-    return this.over || (this.won && !this.keepPlaying);
+  // ゲームオーバーであり、かつ継続プレイしない場合に true を返す
+    return this.over && !this.keepPlaying; 
 };
 
 GameManager.prototype.setup = function() {
@@ -328,18 +336,24 @@ GameManager.prototype.addRandomTile = function() {
 };
 
 GameManager.prototype.actuate = function() {
-    this.actuator.actuate(this.grid, {
-        score: this.score,
-        over: this.over,
-        won: this.won,
-        bestScore: this.storageManager.getBestScore(),
-        terminated: this.isGameTerminated()
-    });
-    if (this.over) {
-        this.storageManager.clearGameState();
-    } else {
-        this.storageManager.setGameState(this.serialize());
-    }
+  this.actuator.actuate(this.grid, {
+    score: this.score,
+    over: this.over,
+    won: this.won,
+    keepPlaying: this.keepPlaying
+  });
+  if (this.storageManager.getBestScore() < this.score) {
+    this.storageManager.setBestScore(this.score);
+  }
+  if (this.over) {
+    this.storageManager.clearGameState();
+  } else {
+    this.storageManager.setGameState(this.serialize());
+  }
+     // ゲームオーバーの場合はメッセージを表示する
+     if (this.isGameTerminated()) {
+      this.actuator.message(false);
+  }
 };
 
 GameManager.prototype.serialize = function() {
@@ -352,58 +366,53 @@ GameManager.prototype.serialize = function() {
     };
 };
 GameManager.prototype.prepareTiles = function() {
-    this.grid.eachCell(function(x, y, tile) {
-        if (tile) {
-            tile.mergedFrom = null;
-            tile.savePosition();
-        }
-    });
-};
-GameManager.prototype.moveTile = function(tile, cell) {
-    this.grid.cells[tile.x][tile.y] = null;
-    this.grid.cells[cell.x][cell.y] = tile;
-    tile.updatePosition(cell);
+  this.grid.eachCell(function(x, y, tile) {
+    if (tile) {
+      tile.mergedFrom = null;
+      tile.savePosition();
+    }
+  });
 };
 
 GameManager.prototype.move = function(direction) {
-    var self = this;
-    if (this.isGameTerminated()) return;
-    var cell, tile;
-    var vector = this.getVector(direction);
-    var traversals = this.buildTraversals(vector);
-    var moved = false;
-    this.prepareTiles();
-    traversals.x.forEach(function(x) {
-        traversals.y.forEach(function(y) {
-            cell = { x: x, y: y };
-            tile = self.grid.cellContent(cell);
-            if (tile) {
-                var positions = self.findFarthestPosition(cell, vector);
-                var next = self.grid.cellContent(positions.next);
-                if (next && next.value === tile.value && !next.mergedFrom) {
-                    var merged = new Tile(positions.next, tile.value * 2);
-                    merged.mergedFrom = [tile, next];
-                    self.grid.insertTile(merged);
-                    self.grid.removeTile(tile);
-                    tile.updatePosition(positions.next);
-                    self.score += merged.value;
-                    if (merged.value === 2048) self.won = true;
-                } else {
-                    self.moveTile(tile, positions.farthest);
-                }
-                if (!self.positionsEqual(cell, tile)) {
-                    moved = true;
-                }
-            }
-        });
-    });
-    if (moved) {
-        this.addRandomTile();
-        if (!this.movesAvailable()) {
-            this.over = true;
+  var self = this;
+  if (this.isGameTerminated()) return; 
+  var cell, tile;
+  var vector = this.getVector(direction);
+  var traversals = this.buildTraversals(vector);
+  var moved = false;
+  this.prepareTiles();
+  traversals.x.forEach(function(x) {
+    traversals.y.forEach(function(y) {
+      cell = { x: x, y: y };
+      tile = self.grid.cellContent(cell);
+      if (tile) {
+        var positions = self.findFarthestPosition(cell, vector);
+        var next = self.grid.cellContent(positions.next);
+        if (next && next.value === tile.value && !next.mergedFrom) {
+          var merged = new Tile(positions.next, tile.value * 2);
+          merged.mergedFrom = [tile, next];
+          self.grid.insertTile(merged);
+          self.grid.removeTile(tile);
+          tile.updatePosition(positions.next);
+          self.score += merged.value;
+          if (merged.value === 2048) self.won = true;
+        } else {
+          self.moveTile(tile, positions.farthest);
         }
-        this.actuate();
+        if (!self.positionsEqual(cell, tile)) {
+          moved = true; 
+        }
+      }
+    });
+  });
+  if (moved) {
+    this.addRandomTile();
+    if (!this.movesAvailable()) {
+      this.over = true; 
     }
+    this.actuate();
+  }
 };
 
   GameManager.prototype.getVector = function(direction) {
@@ -497,22 +506,6 @@ Grid.prototype.empty = function() {
   return cells;
 };
 
-Grid.prototype.cellAvailable = function(cell) {
-  return !this.cellOccupied(cell);
-};
-
-Grid.prototype.cellOccupied = function(cell) {
-  return !!this.cellContent(cell);
-};
-
-Grid.prototype.cellContent = function(cell) {
-  if (this.withinBounds(cell)) {
-      return this.cells[cell.x][cell.y];
-  } else {
-      return null;
-  }
-};
-
 Grid.prototype.randomAvailableCell = function() {
   var cells = this.availableCells();
   if (cells.length) {
@@ -542,6 +535,21 @@ Grid.prototype.cellsAvailable = function() {
   return !!this.availableCells().length;
 };
 
+Grid.prototype.cellAvailable = function(cell) {
+  return !this.cellOccupied(cell);
+};
+
+Grid.prototype.cellOccupied = function(cell) {
+  return !!this.cellContent(cell);
+};
+
+Grid.prototype.cellContent = function(cell) {
+  if (this.withinBounds(cell)) {
+    return this.cells[cell.x][cell.y];
+  } else {
+    return null;
+  }
+};
 Grid.prototype.insertTile = function(tile) {
   this.cells[tile.x][tile.y] = tile;
 };
@@ -598,47 +606,33 @@ Grid.prototype.serialize = function() {
   function LocalStorageManager() {
     this.bestScoreKey = "bestScore";
     this.gameStateKey = "gameState";
-    var supported = this.localStorageSupported();
-    this.storage = supported ? window.localStorage : window.fakeStorage;
   }
   
-  LocalStorageManager.prototype.localStorageSupported = function() {
-    var testKey = "test";
-    var storage = window.localStorage;
-    try {
-        storage.setItem(testKey, "1");
-        storage.removeItem(testKey);
-        return true;
-    } catch (error) {
-        return false;
-    }
-  };
-  
   LocalStorageManager.prototype.getBestScore = function() {
-    return this.storage.getItem(this.bestScoreKey) || 0;
+    return localStorage.getItem(this.bestScoreKey) || 0;
   };
   
   LocalStorageManager.prototype.setBestScore = function(score) {
-    this.storage.setItem(this.bestScoreKey, score);
-  };
-  
-  LocalStorageManager.prototype.clearBestScore = function() {
-    this.storage.removeItem(this.bestScoreKey);
+    localStorage.setItem(this.bestScoreKey, score);
   };
   
   LocalStorageManager.prototype.getGameState = function() {
-    var stateJSON = this.storage.getItem(this.gameStateKey);
+    var stateJSON = localStorage.getItem(this.gameStateKey);
     return stateJSON ? JSON.parse(stateJSON) : null;
   };
   
   LocalStorageManager.prototype.setGameState = function(state) {
-    this.storage.setItem(this.gameStateKey, JSON.stringify(state));
+    localStorage.setItem(this.gameStateKey, JSON.stringify(state));
   };
   
   LocalStorageManager.prototype.clearGameState = function() {
-    this.storage.removeItem(this.gameStateKey);
+    localStorage.removeItem(this.gameStateKey);
   };
   
-  var storage = new LocalStorageManager;
-  var game = new GameManager(4, KeyboardInputManager, HTMLActuator, storage);
+  var size = 4;
+  var inputManager = new KeyboardInputManager();
+  var storageManager = new LocalStorageManager();
+  var actuator = new HTMLActuator();
+  var game = new GameManager(size, KeyboardInputManager, HTMLActuator, storageManager);
   
+  // 修正前643
